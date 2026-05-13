@@ -30,6 +30,7 @@ mod search_mode_serde {
             SearchMode::Regex => "regex",
             SearchMode::Hybrid => "hybrid",
             SearchMode::Lexical => "lexical",
+            SearchMode::All => "all",
         };
         serializer.serialize_str(s)
     }
@@ -44,7 +45,8 @@ mod search_mode_serde {
             "regex" => SearchMode::Regex,
             "hybrid" => SearchMode::Hybrid,
             "lexical" => SearchMode::Lexical,
-            _ => SearchMode::Semantic, // Default fallback
+            "all" => SearchMode::All,
+            _ => SearchMode::Semantic,
         })
     }
 }

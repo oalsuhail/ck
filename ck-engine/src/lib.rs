@@ -339,7 +339,10 @@ pub async fn search_enhanced_with_indexing_progress(
 
     // Auto-update index if needed (unless it's regex-only mode)
     if !matches!(options.mode, SearchMode::Regex) {
-        let need_embeddings = matches!(options.mode, SearchMode::Semantic | SearchMode::Hybrid);
+        let need_embeddings = matches!(
+            options.mode,
+            SearchMode::Semantic | SearchMode::Hybrid | SearchMode::All
+        );
         let file_options = ck_core::FileCollectionOptions::from(options);
         ensure_index_updated_with_progress(
             &options.path,
@@ -374,6 +377,13 @@ pub async fn search_enhanced_with_indexing_progress(
         }
         SearchMode::Hybrid => {
             let matches = hybrid_search_with_progress(options, progress_callback).await?;
+            ck_core::SearchResults {
+                matches,
+                closest_below_threshold: None,
+            }
+        }
+        SearchMode::All => {
+            let matches = all_search_with_progress(options, progress_callback).await?;
             ck_core::SearchResults {
                 matches,
                 closest_below_threshold: None,
@@ -1046,6 +1056,88 @@ async fn hybrid_search_with_progress(
     rrf_results.retain(|result| path_matches_include(&result.file, &options.include_patterns));
 
     // Sort by RRF score (highest first)
+    rrf_results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if let Some(top_k) = options.top_k {
+        rrf_results.truncate(top_k);
+    }
+
+    Ok(rrf_results)
+}
+
+async fn all_search_with_progress(
+    options: &SearchOptions,
+    progress_callback: Option<SearchProgressCallback>,
+) -> Result<Vec<SearchResult>> {
+    if let Some(ref callback) = progress_callback {
+        callback("Running regex search...");
+    }
+    let regex_results = regex_search(options)?;
+
+    if let Some(ref callback) = progress_callback {
+        callback("Running lexical search...");
+    }
+    let lexical_results = lexical_search(options).await.unwrap_or_default();
+
+    if let Some(ref callback) = progress_callback {
+        callback("Running semantic search...");
+    }
+    let semantic_results = semantic_search_v3_with_progress(options, progress_callback)
+        .await?
+        .matches;
+
+    let mut combined: HashMap<String, Vec<(usize, SearchResult)>> = HashMap::new();
+
+    for (rank, result) in regex_results.iter().enumerate() {
+        let key = format!("{}:{}", result.file.display(), result.span.line_start);
+        combined
+            .entry(key)
+            .or_default()
+            .push((rank + 1, result.clone()));
+    }
+
+    for (rank, result) in lexical_results.iter().enumerate() {
+        let key = format!("{}:{}", result.file.display(), result.span.line_start);
+        combined
+            .entry(key)
+            .or_default()
+            .push((rank + 1, result.clone()));
+    }
+
+    for (rank, result) in semantic_results.iter().enumerate() {
+        let key = format!("{}:{}", result.file.display(), result.span.line_start);
+        combined
+            .entry(key)
+            .or_default()
+            .push((rank + 1, result.clone()));
+    }
+
+    let mut rrf_results: Vec<SearchResult> = combined
+        .into_values()
+        .map(|ranks| {
+            let mut result = ranks[0].1.clone();
+            let rrf_score: f32 = ranks
+                .iter()
+                .map(|(rank, _)| 1.0 / (60.0 + *rank as f32))
+                .sum();
+            result.score = rrf_score;
+            result
+        })
+        .filter(|result| {
+            if let Some(threshold) = options.threshold {
+                result.score >= threshold
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    rrf_results.retain(|result| path_matches_include(&result.file, &options.include_patterns));
+
     rrf_results.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)

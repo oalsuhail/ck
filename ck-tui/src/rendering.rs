@@ -22,6 +22,7 @@ pub fn draw_query_input(f: &mut Frame, area: Rect, state: &TuiState) {
             SearchMode::Regex => "[REG]",
             SearchMode::Hybrid => "[HYB]",
             SearchMode::Lexical => "[LEX]",
+            SearchMode::All => "[ALL]",
         };
         (
             format!(

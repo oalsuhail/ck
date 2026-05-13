@@ -268,7 +268,7 @@ impl TuiApp {
             SearchMode::Semantic => SearchMode::Regex,
             SearchMode::Regex => SearchMode::Hybrid,
             SearchMode::Hybrid => SearchMode::Semantic,
-            SearchMode::Lexical => SearchMode::Semantic, // Skip lexical for now
+            SearchMode::Lexical | SearchMode::All => SearchMode::Semantic,
         };
         self.state.status_message = format!("Switched to {:?} mode", self.state.mode);
         self.save_config();
@@ -538,9 +538,7 @@ impl TuiApp {
 
         let threshold = match self.state.mode {
             SearchMode::Semantic => Some(0.6),
-            SearchMode::Hybrid => None,
-            SearchMode::Regex => None,
-            SearchMode::Lexical => None,
+            SearchMode::Hybrid | SearchMode::Regex | SearchMode::Lexical | SearchMode::All => None,
         };
 
         // Use the centralized pattern builder from ck-core
