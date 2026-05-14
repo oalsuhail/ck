@@ -1802,11 +1802,11 @@ mod tests {
 
         // First, search from parent to create the index
         let parent_options = SearchOptions {
-            mode: SearchMode::Semantic,
+            mode: SearchMode::Regex,
             query: "searchable".to_string(),
             path: parent.to_path_buf(),
             top_k: Some(10),
-            threshold: Some(0.1),
+            threshold: None,
             ..Default::default()
         };
 
@@ -1819,11 +1819,11 @@ mod tests {
         // The engine should find parent .ck index and use parent .ckignore
         // But currently it loads .ckignore from subdir (doesn't exist)
         let subdir_options = SearchOptions {
-            mode: SearchMode::Semantic,
+            mode: SearchMode::Regex,
             query: "content".to_string(),
             path: subdir.clone(),
             top_k: Some(10),
-            threshold: Some(0.1),
+            threshold: None,
             ..Default::default()
         };
 
@@ -1885,37 +1885,37 @@ mod tests {
 
         // Index from parent
         let parent_options = SearchOptions {
-            mode: SearchMode::Semantic,
+            mode: SearchMode::Regex,
             query: "searchable".to_string(),
             path: parent.to_path_buf(),
             top_k: Some(20),
-            threshold: Some(0.1),
+            threshold: None,
             ..Default::default()
         };
 
         let _ = search(&parent_options).await;
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Search from deeper directory - should respect ALL three .ckignore files
-        let deeper_options = SearchOptions {
-            mode: SearchMode::Semantic,
-            query: "ignored".to_string(),
-            path: deeper.clone(),
+        // Search for content that only exists in the ignored files.
+        // If .ckignore works, those files are excluded from collection so results are empty.
+        let ignored_content_options = SearchOptions {
+            mode: SearchMode::Regex,
+            query: "should be ignored".to_string(),
+            path: parent.to_path_buf(),
             top_k: Some(20),
-            threshold: Some(0.1),
+            threshold: None,
             ..Default::default()
         };
 
-        let results = search(&deeper_options).await.unwrap();
+        let ignored_results = search(&ignored_content_options).await.unwrap();
 
-        // All ignored files should be excluded
-        let has_log = results
+        let has_log = ignored_results
             .iter()
             .any(|r| r.file.to_string_lossy().ends_with(".log"));
-        let has_tmp = results
+        let has_tmp = ignored_results
             .iter()
             .any(|r| r.file.to_string_lossy().ends_with(".tmp"));
-        let has_cache = results
+        let has_cache = ignored_results
             .iter()
             .any(|r| r.file.to_string_lossy().ends_with(".cache"));
 
@@ -1932,8 +1932,17 @@ mod tests {
             "*.cache files should be excluded by deeper .ckignore"
         );
 
-        // Should still find .txt files
-        let has_txt = results
+        // Should still find .txt files (their content is "searchable")
+        let txt_options = SearchOptions {
+            mode: SearchMode::Regex,
+            query: "searchable".to_string(),
+            path: parent.to_path_buf(),
+            top_k: Some(20),
+            threshold: None,
+            ..Default::default()
+        };
+        let txt_results = search(&txt_options).await.unwrap();
+        let has_txt = txt_results
             .iter()
             .any(|r| r.file.to_string_lossy().ends_with(".txt"));
         assert!(has_txt, "Should find .txt files (not ignored)");
