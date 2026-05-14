@@ -85,3 +85,45 @@ Always update CHANGELOG.md with new releases. Follow this structure:
 - Breaking changes require major version bump
 - --help reflects any new features
 - README incorporates any new user features (e.g. flags etc)
+
+# gstack
+
+Use the `/browse` skill from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools.
+
+## Available Skills
+
+- `/office-hours` - Office hours workflow
+- `/plan-ceo-review` - CEO plan review
+- `/plan-eng-review` - Engineering plan review
+- `/plan-design-review` - Design plan review
+- `/design-consultation` - Design consultation
+- `/design-shotgun` - Rapid design exploration
+- `/design-html` - HTML design generation
+- `/review` - Code review
+- `/ship` - Ship a change
+- `/land-and-deploy` - Land and deploy
+- `/canary` - Canary deployment
+- `/benchmark` - Benchmarking
+- `/browse` - Web browsing (use this for all web browsing)
+- `/connect-chrome` - Connect to Chrome
+- `/qa` - QA testing
+- `/qa-only` - QA only
+- `/design-review` - Design review
+- `/setup-browser-cookies` - Set up browser cookies
+- `/setup-deploy` - Set up deployment
+- `/setup-gbrain` - Set up gbrain
+- `/retro` - Retrospective
+- `/investigate` - Investigation workflow
+- `/document-release` - Document a release
+- `/document-generate` - Generate documentation
+- `/codex` - Codex workflow
+- `/cso` - CSO workflow
+- `/autoplan` - Automatic planning
+- `/plan-devex-review` - DevEx plan review
+- `/devex-review` - DevEx review
+- `/careful` - Careful mode
+- `/freeze` - Freeze changes
+- `/guard` - Guard mode
+- `/unfreeze` - Unfreeze changes
+- `/gstack-upgrade` - Upgrade gstack
+- `/learn` - Learning workflow
