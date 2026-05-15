@@ -1,0 +1,125 @@
+name: Daily Dashboard
+
+on:
+  schedule:
+    - cron: '0 8 * * *'  # Every day at 8:00 AM UTC
+  workflow_dispatch:       # Allow manual trigger
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  dashboard:
+    name: Generate Daily Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect dashboard data
+        run: |
+          python3 - <<'PYEOF'
+          import subprocess, json
+
+          def run(cmd):
+              return subprocess.check_output(cmd, shell=True, text=True).strip()
+
+          data = {
+              "branch":       run("git branch --show-current"),
+              "total_commits": run("git rev-list --count HEAD"),
+              "last_msg":     run("git log -1 --pretty=format:%s"),
+              "last_date":    run("git log -1 --pretty=format:%cr"),
+              "last_author":  run("git log -1 --pretty=format:%an"),
+              "contributors": run("git shortlog -sn HEAD | wc -l"),
+              "rust_files":   run("find . -name '*.rs' | grep -v target | wc -l"),
+              "test_count":   run("grep -r '#\\[test\\]' --include='*.rs' . | grep -v target | wc -l || echo 0"),
+              "todo_count":   run("grep -r 'TODO\\|FIXME\\|HACK' --include='*.rs' . | grep -v target | wc -l || echo 0"),
+              "recent_activity": run("git log --oneline -5 --format='%h|%s|%cr'"),
+          }
+          with open("dashboard_data.json", "w") as f:
+              json.dump(data, f)
+          PYEOF
+
+      - name: Create or update dashboard issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const d = JSON.parse(fs.readFileSync('dashboard_data.json', 'utf8'));
+            const today = new Date().toISOString().split('T')[0];
+
+            // Recent activity table
+            const rows = d.recent_activity.split('\n').map(line => {
+              const [hash, msg, date] = line.split('|');
+              return `| \`${hash}\` | ${msg} | ${date} |`;
+            }).join('\n');
+
+            // Professional advice based on metrics
+            const todos = parseInt(d.todo_count);
+            const tests = parseInt(d.test_count);
+            const advice = [];
+            if (todos > 10) advice.push('⚠️ **High TODO count** (' + todos + '): Schedule a cleanup sprint to reduce technical debt.');
+            else advice.push('✅ **Low technical debt**: TODO count is healthy (' + todos + '). Keep it up.');
+            if (tests < 50) advice.push('🧪 **Increase test coverage**: Only ' + tests + ' tests found. Aim for broader coverage.');
+            else advice.push('✅ **Good test coverage**: ' + tests + ' tests detected. Maintain this discipline.');
+            if (parseInt(d.contributors) === 1) advice.push('👥 **Bus factor risk**: Only 1 contributor. Consider documenting key areas.');
+            advice.push('📅 **Daily habit**: Review open PRs and close anything stale before starting new work.');
+            advice.push('🔒 **Security reminder**: Ensure `ANTHROPIC_API_KEY` is set in repo secrets for Claude CI to run fully.');
+
+            const body = [
+              `# 📊 Daily Dashboard — ${today}`,
+              '',
+              '## 🔀 Repository Status',
+              '| Metric | Value |',
+              '|--------|-------|',
+              `| Active Branch | \`${d.branch}\` |`,
+              `| Total Commits | ${d.total_commits} |`,
+              `| Contributors | ${d.contributors} |`,
+              `| Rust Source Files | ${d.rust_files} |`,
+              `| Tests | ${d.test_count} |`,
+              `| TODO / FIXME items | ${d.todo_count} |`,
+              '',
+              '## 📝 Last Commit',
+              `> **${d.last_msg}**`,
+              `> by ${d.last_author} — ${d.last_date}`,
+              '',
+              '## 🕐 Recent Activity',
+              '| Hash | Message | When |',
+              '|------|---------|------|',
+              rows,
+              '',
+              '## 💡 Professional Advice',
+              advice.map(a => `- ${a}`).join('\n'),
+              '',
+              '---',
+              '*Auto-generated daily at 08:00 UTC by the Daily Dashboard workflow.*',
+            ].join('\n');
+
+            // Reuse existing open dashboard issue or create new one
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: ['dashboard'],
+              state: 'open',
+            });
+
+            if (issues.data.length > 0) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.data[0].number,
+                title: `📊 Daily Dashboard — ${today}`,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `📊 Daily Dashboard — ${today}`,
+                body,
+                labels: ['dashboard'],
+              });
+            }
