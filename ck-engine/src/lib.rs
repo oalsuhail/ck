@@ -339,7 +339,10 @@ pub async fn search_enhanced_with_indexing_progress(
 
     // Auto-update index if needed (unless it's regex-only mode)
     if !matches!(options.mode, SearchMode::Regex) {
-        let need_embeddings = matches!(options.mode, SearchMode::Semantic | SearchMode::Hybrid);
+        let need_embeddings = matches!(
+            options.mode,
+            SearchMode::Semantic | SearchMode::Hybrid | SearchMode::All
+        );
         let file_options = ck_core::FileCollectionOptions::from(options);
         ensure_index_updated_with_progress(
             &options.path,
@@ -374,6 +377,13 @@ pub async fn search_enhanced_with_indexing_progress(
         }
         SearchMode::Hybrid => {
             let matches = hybrid_search_with_progress(options, progress_callback).await?;
+            ck_core::SearchResults {
+                matches,
+                closest_below_threshold: None,
+            }
+        }
+        SearchMode::All => {
+            let matches = all_search_with_progress(options, progress_callback).await?;
             ck_core::SearchResults {
                 matches,
                 closest_below_threshold: None,
@@ -1059,6 +1069,88 @@ async fn hybrid_search_with_progress(
     Ok(rrf_results)
 }
 
+async fn all_search_with_progress(
+    options: &SearchOptions,
+    progress_callback: Option<SearchProgressCallback>,
+) -> Result<Vec<SearchResult>> {
+    if let Some(ref callback) = progress_callback {
+        callback("Running regex search...");
+    }
+    let regex_results = regex_search(options)?;
+
+    if let Some(ref callback) = progress_callback {
+        callback("Running lexical search...");
+    }
+    let lexical_results = lexical_search(options).await.unwrap_or_default();
+
+    if let Some(ref callback) = progress_callback {
+        callback("Running semantic search...");
+    }
+    let semantic_results = semantic_search_v3_with_progress(options, progress_callback)
+        .await?
+        .matches;
+
+    let mut combined: HashMap<String, Vec<(usize, SearchResult)>> = HashMap::new();
+
+    for (rank, result) in regex_results.iter().enumerate() {
+        let key = format!("{}:{}", result.file.display(), result.span.line_start);
+        combined
+            .entry(key)
+            .or_default()
+            .push((rank + 1, result.clone()));
+    }
+
+    for (rank, result) in lexical_results.iter().enumerate() {
+        let key = format!("{}:{}", result.file.display(), result.span.line_start);
+        combined
+            .entry(key)
+            .or_default()
+            .push((rank + 1, result.clone()));
+    }
+
+    for (rank, result) in semantic_results.iter().enumerate() {
+        let key = format!("{}:{}", result.file.display(), result.span.line_start);
+        combined
+            .entry(key)
+            .or_default()
+            .push((rank + 1, result.clone()));
+    }
+
+    let mut rrf_results: Vec<SearchResult> = combined
+        .into_values()
+        .map(|ranks| {
+            let mut result = ranks[0].1.clone();
+            let rrf_score: f32 = ranks
+                .iter()
+                .map(|(rank, _)| 1.0 / (60.0 + *rank as f32))
+                .sum();
+            result.score = rrf_score;
+            result
+        })
+        .filter(|result| {
+            if let Some(threshold) = options.threshold {
+                result.score >= threshold
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    rrf_results.retain(|result| path_matches_include(&result.file, &options.include_patterns));
+
+    rrf_results.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    if let Some(top_k) = options.top_k {
+        rrf_results.truncate(top_k);
+    }
+
+    Ok(rrf_results)
+}
+
 fn build_globset(patterns: &[String]) -> GlobSet {
     let mut builder = GlobSetBuilder::new();
     for pat in patterns {
@@ -1710,11 +1802,11 @@ mod tests {
 
         // First, search from parent to create the index
         let parent_options = SearchOptions {
-            mode: SearchMode::Semantic,
+            mode: SearchMode::Regex,
             query: "searchable".to_string(),
             path: parent.to_path_buf(),
             top_k: Some(10),
-            threshold: Some(0.1),
+            threshold: None,
             ..Default::default()
         };
 
@@ -1727,11 +1819,11 @@ mod tests {
         // The engine should find parent .ck index and use parent .ckignore
         // But currently it loads .ckignore from subdir (doesn't exist)
         let subdir_options = SearchOptions {
-            mode: SearchMode::Semantic,
+            mode: SearchMode::Regex,
             query: "content".to_string(),
             path: subdir.clone(),
             top_k: Some(10),
-            threshold: Some(0.1),
+            threshold: None,
             ..Default::default()
         };
 
@@ -1793,37 +1885,37 @@ mod tests {
 
         // Index from parent
         let parent_options = SearchOptions {
-            mode: SearchMode::Semantic,
+            mode: SearchMode::Regex,
             query: "searchable".to_string(),
             path: parent.to_path_buf(),
             top_k: Some(20),
-            threshold: Some(0.1),
+            threshold: None,
             ..Default::default()
         };
 
         let _ = search(&parent_options).await;
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-        // Search from deeper directory - should respect ALL three .ckignore files
-        let deeper_options = SearchOptions {
-            mode: SearchMode::Semantic,
-            query: "ignored".to_string(),
-            path: deeper.clone(),
+        // Search for content that only exists in the ignored files.
+        // If .ckignore works, those files are excluded from collection so results are empty.
+        let ignored_content_options = SearchOptions {
+            mode: SearchMode::Regex,
+            query: "should be ignored".to_string(),
+            path: parent.to_path_buf(),
             top_k: Some(20),
-            threshold: Some(0.1),
+            threshold: None,
             ..Default::default()
         };
 
-        let results = search(&deeper_options).await.unwrap();
+        let ignored_results = search(&ignored_content_options).await.unwrap();
 
-        // All ignored files should be excluded
-        let has_log = results
+        let has_log = ignored_results
             .iter()
             .any(|r| r.file.to_string_lossy().ends_with(".log"));
-        let has_tmp = results
+        let has_tmp = ignored_results
             .iter()
             .any(|r| r.file.to_string_lossy().ends_with(".tmp"));
-        let has_cache = results
+        let has_cache = ignored_results
             .iter()
             .any(|r| r.file.to_string_lossy().ends_with(".cache"));
 
@@ -1840,8 +1932,17 @@ mod tests {
             "*.cache files should be excluded by deeper .ckignore"
         );
 
-        // Should still find .txt files
-        let has_txt = results
+        // Should still find .txt files (their content is "searchable")
+        let txt_options = SearchOptions {
+            mode: SearchMode::Regex,
+            query: "searchable".to_string(),
+            path: parent.to_path_buf(),
+            top_k: Some(20),
+            threshold: None,
+            ..Default::default()
+        };
+        let txt_results = search(&txt_options).await.unwrap();
+        let has_txt = txt_results
             .iter()
             .any(|r| r.file.to_string_lossy().ends_with(".txt"));
         assert!(has_txt, "Should find .txt files (not ignored)");

@@ -42,11 +42,15 @@ QUICK START EXAMPLES:
     ck --lex "user authentication"    # Full-text search with ranking
     ck --lex "http client request"    # Better than regex for phrases
 
-  Hybrid search (combines regex + semantic):  
+  Hybrid search (combines regex + semantic):
     ck --hybrid "async function"      # Best of both worlds
     ck --hybrid "error" --limit 10    # Top 10 most relevant results (--limit is alias for --topk)
     ck --hybrid "bug" --threshold 0.02 # Only results with RRF score >= 0.02
     ck --sem "auth" --scores           # Show similarity scores in output
+
+  All-modes search (regex + BM25 + semantic, most comprehensive):
+    ck --all "authentication"         # Run all search backends, fuse via RRF
+    ck --all "error handling" --limit 20 # Top 20 across all backends
 
   Index management:
     ck --status .                     # Check index status
@@ -86,9 +90,10 @@ QUICK START EXAMPLES:
 
   SEARCH MODES:
   --regex   : Classic grep behavior (default, no index needed)
-  --lex     : BM25 lexical search (auto-indexed before it runs)  
+  --lex     : BM25 lexical search (auto-indexed before it runs)
   --sem     : Semantic/embedding search (auto-indexed, defaults: top 10, threshold ≥0.6)
   --hybrid  : Combines regex and semantic (shares the auto-indexing path)
+  --all     : All plugs - regex + BM25 + semantic fused via RRF (most comprehensive)
 
 RESULT FILTERING:
   --topk, --limit N : Limit to top N results (default: 10 for semantic search)
@@ -194,6 +199,12 @@ struct Cli {
 
     #[arg(long = "regex", help = "Regex search mode (default, grep-compatible)")]
     regex: bool,
+
+    #[arg(
+        long = "all",
+        help = "All-modes search - runs regex + BM25 + semantic simultaneously and fuses results via RRF (most comprehensive)"
+    )]
+    all: bool,
 
     #[arg(
         long = "topk",
@@ -1437,6 +1448,8 @@ fn build_options(cli: &Cli, reindex: bool, _repo_root: Option<&Path>) -> SearchO
         SearchMode::Lexical
     } else if cli.hybrid {
         SearchMode::Hybrid
+    } else if cli.all {
+        SearchMode::All
     } else {
         SearchMode::Regex
     };
@@ -1448,9 +1461,9 @@ fn build_options(cli: &Cli, reindex: bool, _repo_root: Option<&Path>) -> SearchO
     // Use the unified pattern builder
     let exclude_patterns = build_exclude_patterns(cli);
 
-    // Set intelligent defaults for semantic search
+    // Set intelligent defaults for semantic/all search
     let default_topk = match mode {
-        SearchMode::Semantic => Some(10),
+        SearchMode::Semantic | SearchMode::All => Some(10),
         _ => None,
     };
     let default_threshold = match mode {
@@ -1500,8 +1513,7 @@ fn highlight_matches(text: &str, pattern: &str, options: &SearchOptions) -> Stri
 
     match options.mode {
         SearchMode::Regex => highlight_regex_matches(text, pattern, options),
-        SearchMode::Semantic | SearchMode::Hybrid => {
-            // For semantic/hybrid search, use subchunk similarity highlighting
+        SearchMode::Semantic | SearchMode::Hybrid | SearchMode::All => {
             highlight_semantic_chunks(text, pattern, options)
         }
         _ => text.to_string(),
@@ -1596,10 +1608,10 @@ async fn run_search(
         status.finish_progress(reindex_spinner, "Index updated");
     }
 
-    // Show search parameters for semantic mode
+    // Show search parameters for semantic/all mode
     if matches!(
         options.mode,
-        ck_core::SearchMode::Semantic | ck_core::SearchMode::Hybrid
+        ck_core::SearchMode::Semantic | ck_core::SearchMode::Hybrid | ck_core::SearchMode::All
     ) {
         let topk_info = options
             .top_k
@@ -1656,7 +1668,7 @@ async fn run_search(
     let (indexing_progress_callback, detailed_indexing_progress_callback) = if !status.quiet
         && matches!(
             options.mode,
-            ck_core::SearchMode::Semantic | ck_core::SearchMode::Hybrid
+            ck_core::SearchMode::Semantic | ck_core::SearchMode::Hybrid | ck_core::SearchMode::All
         ) {
         // Create the same enhanced progress system for automatic indexing during semantic search
         use indicatif::{MultiProgress, ProgressBar, ProgressStyle};

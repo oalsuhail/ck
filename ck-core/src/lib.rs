@@ -285,6 +285,8 @@ pub enum SearchMode {
     Lexical,
     Semantic,
     Hybrid,
+    /// Runs regex + BM25 + semantic simultaneously and fuses via RRF
+    All,
 }
 
 #[derive(Debug, Clone)]
