@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Navbar Example</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50">
+
+<nav class="bg-white shadow-md">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex justify-between items-center h-16">
+
+      <!-- Logo -->
+      <div class="flex-shrink-0">
+        <span class="text-2xl font-bold text-indigo-600">MyBrand</span>
+      </div>
+
+      <!-- Desktop Links -->
+      <div class="hidden md:flex space-x-8">
+        <a href="#" class="text-gray-600 hover:text-indigo-600 font-medium transition">Home</a>
+        <a href="#" class="text-gray-600 hover:text-indigo-600 font-medium transition">About</a>
+        <a href="#" class="text-gray-600 hover:text-indigo-600 font-medium transition">Services</a>
+        <a href="#" class="text-gray-600 hover:text-indigo-600 font-medium transition">Contact</a>
+      </div>
+
+      <!-- CTA Button -->
+      <div class="hidden md:block">
+        <a href="#" class="bg-indigo-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-indigo-700 transition">
+          Get Started
+        </a>
+      </div>
+
+      <!-- Mobile Menu Button -->
+      <div class="md:hidden">
+        <button onclick="document.getElementById('mobile-menu').classList.toggle('hidden')"
+          class="text-gray-600 hover:text-indigo-600 focus:outline-none">
+          <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Mobile Menu -->
+  <div id="mobile-menu" class="hidden md:hidden px-4 pb-4 space-y-2">
+    <a href="#" class="block text-gray-600 hover:text-indigo-600 font-medium">Home</a>
+    <a href="#" class="block text-gray-600 hover:text-indigo-600 font-medium">About</a>
+    <a href="#" class="block text-gray-600 hover:text-indigo-600 font-medium">Services</a>
+    <a href="#" class="block text-gray-600 hover:text-indigo-600 font-medium">Contact</a>
+    <a href="#" class="block bg-indigo-600 text-white px-4 py-2 rounded-lg font-semibold text-center hover:bg-indigo-700">
+      Get Started
+    </a>
+  </div>
+</nav>
+
+</body>
+</html>

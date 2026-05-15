@@ -3,6 +3,10 @@
 This file contains project-specific instructions for Claude and other AI agents working on the ck codebase.
 Whenever you actually use ck and it does something unexpected, jot it down in a file could UNEXPECTED.md - supply what you ran, what you expected to happen, what happened instead.
 
+## Resources
+
+- [superpowers](https://github.com/obra/superpowers.git) - Additional capabilities and tools for Claude agents
+
 
 ## Release Process
 

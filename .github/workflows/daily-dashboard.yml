@@ -1,0 +1,161 @@
+name: Daily Dashboard
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dashboard:
+    name: Generate Daily Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect and write DASHBOARD.md
+        run: |
+          python3 - <<\'PYEOF2\'
+          import subprocess, json, os, platform
+          from datetime import datetime, timezone
+
+          def run(cmd, fallback="N/A"):
+              try:
+                  return subprocess.check_output(cmd, shell=True, text=True).strip()
+              except Exception:
+                  return fallback
+
+          git_data = {
+              "branch":          run("git branch --show-current"),
+              "total_commits":   run("git rev-list --count HEAD"),
+              "last_msg":        run("git log -1 --pretty=format:%s"),
+              "last_date":       run("git log -1 --pretty=format:%cr"),
+              "last_author":     run("git log -1 --pretty=format:%an"),
+              "contributors":    run("git shortlog -sn HEAD | wc -l"),
+              "recent_activity": run("git log --oneline -5 --format=%h|%s|%cr"),
+          }
+          code = {
+              "rust_files":    run("find . -name *.rs | grep -v target | wc -l"),
+              "lines_of_code": run("find . -name *.rs | grep -v target | xargs wc -l 2>/dev/null | tail -1 | awk {print $1}"),
+              "test_count":    run("grep -r #[test] --include=*.rs . | grep -v target | wc -l || echo 0"),
+              "todo_count":    run("grep -r TODO|FIXME|HACK --include=*.rs . | grep -v target | wc -l || echo 0"),
+              "open_prs":      run("gh pr list --state open --json number --jq length 2>/dev/null || echo 0"),
+          }
+          sys_info = {
+              "kernel":      run("uname -r"),
+              "arch":        run("uname -m"),
+              "cpu_cores":   run("nproc"),
+              "cpu_model":   run("grep model\ name /proc/cpuinfo | head -1 | cut -d: -f2 | xargs"),
+              "ram_total":   run("free -h | awk /^Mem:/{print $2}"),
+              "ram_used":    run("free -h | awk /^Mem:/{print $3}"),
+              "ram_free":    run("free -h | awk /^Mem:/{print $4}"),
+              "disk_total":  run("df -h / | awk NR==2{print $2}"),
+              "disk_used":   run("df -h / | awk NR==2{print $3}"),
+              "disk_free":   run("df -h / | awk NR==2{print $4}"),
+              "disk_pct":    run("df -h / | awk NR==2{print $5}"),
+              "load_avg":    run("cat /proc/loadavg | awk {print $1, $2, $3}"),
+              "uptime":      run("uptime -p"),
+              "runner_os":   os.environ.get("RUNNER_OS", "Linux"),
+          }
+
+          today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+          time_str = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M UTC")
+
+          todos = int(code["todo_count"]) if code["todo_count"].isdigit() else 0
+          tests = int(code["test_count"]) if code["test_count"].isdigit() else 0
+          prs   = int(code["open_prs"])   if code["open_prs"].isdigit()   else 0
+          contribs = int(git_data["contributors"]) if git_data["contributors"].isdigit() else 1
+          disk_pct = int(sys_info["disk_pct"].replace("%","")) if sys_info["disk_pct"].replace("%","").isdigit() else 0
+
+          advice = []
+          if todos > 10: advice.append("WARNING  Technical Debt Alert: " + str(todos) + " TODO/FIXME items. Block time for a cleanup sprint.")
+          else:          advice.append("OK  Clean Codebase: Only " + str(todos) + " TODO/FIXME items. Stay disciplined.")
+          if tests < 50: advice.append("WARNING  Test Coverage: Only " + str(tests) + " tests. Add tests before new features.")
+          else:          advice.append("OK  Healthy Test Suite: " + str(tests) + " tests. Keep growing with every PR.")
+          if prs > 3:    advice.append("WARNING  PR Backlog: " + str(prs) + " open PRs. Review, merge, or close stale ones.")
+          elif prs == 0: advice.append("OK  Clean PR Queue: No open PRs. Good time to refactor.")
+          else:          advice.append("OK  " + str(prs) + " open PR(s). Keep the queue moving.")
+          if contribs < 2: advice.append("WARNING  Bus Factor Risk: Solo contributor. Document critical areas.")
+          if disk_pct > 80: advice.append("WARNING  Disk: " + sys_info["disk_pct"] + " used. Clean up or expand storage.")
+          else:             advice.append("OK  Disk Healthy: " + sys_info["disk_pct"] + " used (" + sys_info["disk_free"] + " free).")
+          advice.append("REMINDER  Set ANTHROPIC_API_KEY in repo secrets for Claude Code Review.")
+          advice.append("HABIT  Check this dashboard first, then tackle the top-priority open PR.")
+
+          rows = ""
+          for line in git_data["recent_activity"].split("\n"):
+              parts = line.split("|")
+              if len(parts) >= 3:
+                  rows += "| `" + parts[0] + "` | " + parts[1] + " | " + parts[2] + " |\n"
+
+          md = f"""# Daily Dashboard - {today}
+> Generated: {time_str}
+
+---
+
+## Repository
+| Metric | Value |
+|--------|-------|
+| Branch | `{git_data["branch"]}` |
+| Total Commits | {git_data["total_commits"]} |
+| Contributors | {git_data["contributors"]} |
+| Open PRs | {code["open_prs"]} |
+
+## Code Health
+| Metric | Value |
+|--------|-------|
+| Rust Source Files | {code["rust_files"]} |
+| Lines of Code | {code["lines_of_code"]} |
+| Tests | {code["test_count"]} |
+| TODO / FIXME / HACK | {code["todo_count"]} |
+
+## Last Commit
+> **{git_data["last_msg"]}**
+> by {git_data["last_author"]} - {git_data["last_date"]}
+
+## Recent Activity
+| Hash | Message | When |
+|------|---------|------|
+{rows}
+## System
+| Metric | Value |
+|--------|-------|
+| OS | {sys_info["runner_os"]} |
+| Kernel | {sys_info["kernel"]} |
+| Architecture | {sys_info["arch"]} |
+| CPU Model | {sys_info["cpu_model"]} |
+| CPU Cores | {sys_info["cpu_cores"]} |
+| Load Average (1/5/15m) | {sys_info["load_avg"]} |
+| Uptime | {sys_info["uptime"]} |
+| RAM Total | {sys_info["ram_total"]} |
+| RAM Used | {sys_info["ram_used"]} |
+| RAM Free | {sys_info["ram_free"]} |
+| Disk Total | {sys_info["disk_total"]} |
+| Disk Used | {sys_info["disk_used"]} ({sys_info["disk_pct"]}) |
+| Disk Free | {sys_info["disk_free"]} |
+
+## Professional Advice
+"""
+          for a in advice:
+              md += "- " + a + "\n"
+
+          md += "\n---\n*Auto-updated daily at 08:00 UTC*\n"
+
+          with open("DASHBOARD.md", "w") as f:
+              f.write(md)
+          print("DASHBOARD.md written")
+          \'PYEOF2\'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Commit and push DASHBOARD.md
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add DASHBOARD.md
+          git diff --cached --quiet || git commit -m "chore: Update daily dashboard"
+          git push
