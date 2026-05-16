@@ -10,12 +10,26 @@ pub enum PreviewMode {
     Chunks,  // Show chunk boundaries
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PersistedHistoryEntry {
+    pub query: String,
+    pub timestamp_secs: u64,
+}
+
+fn default_max_history() -> usize {
+    50
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct TuiConfig {
     #[serde(with = "search_mode_serde")]
     pub search_mode: SearchMode,
     pub preview_mode: PreviewMode,
     pub full_file_mode: bool,
+    #[serde(default)]
+    pub search_history: Vec<PersistedHistoryEntry>,
+    #[serde(default = "default_max_history")]
+    pub max_history: usize,
 }
 
 mod search_mode_serde {
@@ -57,6 +71,8 @@ impl Default for TuiConfig {
             search_mode: SearchMode::Semantic,
             preview_mode: PreviewMode::Heatmap,
             full_file_mode: true,
+            search_history: Vec::new(),
+            max_history: default_max_history(),
         }
     }
 }
