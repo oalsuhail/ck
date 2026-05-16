@@ -6,7 +6,12 @@ use ck_index::IndexStats;
 use ratatui::text::Line;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
+
+pub struct HistoryEntry {
+    pub query: String,
+    pub timestamp: SystemTime,
+}
 
 pub struct TuiState {
     pub query: String,
@@ -20,10 +25,10 @@ pub struct TuiState {
     pub scroll_offset: usize, // For scrolling in full file mode
     pub status_message: String,
     pub search_path: PathBuf,
-    pub selected_files: HashSet<PathBuf>, // For multi-select
-    pub search_history: Vec<String>,      // Search history
-    pub history_index: usize,             // Current position in history
-    pub command_mode: bool,               // true when query starts with /
+    pub selected_files: HashSet<PathBuf>,  // For multi-select
+    pub search_history: Vec<HistoryEntry>, // Search history with timestamps
+    pub history_index: usize,              // Current position in history
+    pub command_mode: bool,                // true when query starts with /
     pub index_stats: Option<IndexStats>,
     pub last_index_stats_refresh: Option<Instant>,
     pub index_stats_error: Option<String>,

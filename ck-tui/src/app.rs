@@ -1,12 +1,12 @@
 use crate::colors::DEBOUNCE_MS;
 use crate::commands::{execute_command, show_chunks};
-use crate::config::{PreviewMode, TuiConfig};
+use crate::config::{PersistedHistoryEntry, PreviewMode, TuiConfig};
 use crate::events::UiEvent;
 use crate::preview::{
     load_preview_lines, render_chunks_preview, render_heatmap_preview, render_syntax_preview,
 };
 use crate::rendering::{draw_preview, draw_query_input, draw_results_list, draw_status_bar};
-use crate::state::{PreviewCache, TuiState};
+use crate::state::{HistoryEntry, PreviewCache, TuiState};
 use anyhow::Result;
 use ck_core::{SearchMode, SearchOptions};
 use ck_index::get_index_stats;
@@ -25,7 +25,7 @@ use shlex::split;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 
@@ -38,13 +38,41 @@ pub struct TuiApp {
     progress_rx: UnboundedReceiver<UiEvent>,
     current_generation: u64,
     active_search: Option<JoinHandle<()>>,
+    max_history: usize,
 }
 
 impl TuiApp {
     pub fn new(search_path: PathBuf, initial_query: Option<String>) -> Self {
         let query = initial_query.unwrap_or_default();
         let config = TuiConfig::load();
+        let max_history = config.max_history;
         let (progress_tx, progress_rx) = unbounded_channel();
+
+        // Convert persisted history to runtime entries
+        let mut search_history: Vec<HistoryEntry> = config
+            .search_history
+            .iter()
+            .map(|e| HistoryEntry {
+                query: e.query.clone(),
+                timestamp: UNIX_EPOCH + Duration::from_secs(e.timestamp_secs),
+            })
+            .collect();
+
+        // Merge initial query: remove any existing duplicate, then append with fresh timestamp
+        if !query.is_empty() {
+            if let Some(pos) = search_history.iter().position(|e| e.query == query) {
+                search_history.remove(pos);
+            }
+            search_history.push(HistoryEntry {
+                query: query.clone(),
+                timestamp: SystemTime::now(),
+            });
+            while search_history.len() > max_history {
+                search_history.remove(0);
+            }
+        }
+
+        let history_index = search_history.len().saturating_sub(1);
 
         let mut app = Self {
             state: TuiState {
@@ -60,12 +88,8 @@ impl TuiApp {
                 status_message: "Ready. Type to search...".to_string(),
                 search_path,
                 selected_files: Default::default(),
-                search_history: if !query.is_empty() {
-                    vec![query]
-                } else {
-                    Vec::new()
-                },
-                history_index: 0,
+                search_history,
+                history_index,
                 command_mode: false,
                 index_stats: None,
                 last_index_stats_refresh: None,
@@ -85,6 +109,7 @@ impl TuiApp {
             progress_rx,
             current_generation: 0,
             active_search: None,
+            max_history,
         };
         app.list_state.select(Some(0));
         app
@@ -259,8 +284,22 @@ impl TuiApp {
             search_mode: self.state.mode.clone(),
             preview_mode: self.state.preview_mode.clone(),
             full_file_mode: self.state.full_file_mode,
+            search_history: self
+                .state
+                .search_history
+                .iter()
+                .map(|e| PersistedHistoryEntry {
+                    query: e.query.clone(),
+                    timestamp_secs: e
+                        .timestamp
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                })
+                .collect(),
+            max_history: self.max_history,
         };
-        let _ = config.save(); // Silently ignore errors
+        let _ = config.save();
     }
 
     fn cycle_mode(&mut self) {
@@ -335,7 +374,9 @@ impl TuiApp {
         }
         if self.state.history_index > 0 {
             self.state.history_index -= 1;
-            self.state.query = self.state.search_history[self.state.history_index].clone();
+            self.state.query = self.state.search_history[self.state.history_index]
+                .query
+                .clone();
             self.trigger_search();
         }
     }
@@ -343,7 +384,9 @@ impl TuiApp {
     fn history_next(&mut self) {
         if self.state.history_index < self.state.search_history.len().saturating_sub(1) {
             self.state.history_index += 1;
-            self.state.query = self.state.search_history[self.state.history_index].clone();
+            self.state.query = self.state.search_history[self.state.history_index]
+                .query
+                .clone();
             self.trigger_search();
         }
     }
@@ -437,15 +480,26 @@ impl TuiApp {
                 self.update_preview();
                 self.state.status_message = summary;
 
-                if self.state.search_history.last() != Some(&query) {
-                    self.state.search_history.push(query);
-                    if self.state.search_history.len() > 20 {
-                        self.state.search_history.remove(0);
-                    }
+                // Global dedup: remove any existing entry for this query, then push fresh
+                if let Some(pos) = self
+                    .state
+                    .search_history
+                    .iter()
+                    .position(|e| e.query == query)
+                {
+                    self.state.search_history.remove(pos);
+                }
+                self.state.search_history.push(HistoryEntry {
+                    query,
+                    timestamp: SystemTime::now(),
+                });
+                while self.state.search_history.len() > self.max_history {
+                    self.state.search_history.remove(0);
                 }
                 if !self.state.search_history.is_empty() {
                     self.state.history_index = self.state.search_history.len() - 1;
                 }
+                self.save_config();
             }
             UiEvent::SearchFailed { generation, error } => {
                 if generation != current_generation {

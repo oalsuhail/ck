@@ -1,6 +1,6 @@
 use crate::chunks::IndexedChunkMeta;
 use crate::colors::*;
-use crate::state::TuiState;
+use crate::state::{HistoryEntry, TuiState};
 use crate::utils::find_repo_root;
 use anyhow::Result;
 use ck_index::load_index_entry;
@@ -303,6 +303,22 @@ fn load_chunk_spans(repo_root: &Path, file_path: &Path) -> Result<Vec<IndexedChu
     Ok(metas)
 }
 
+fn format_age(entry: &HistoryEntry) -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(entry.timestamp)
+        .unwrap_or_default()
+        .as_secs();
+    if secs < 60 {
+        "just now".to_string()
+    } else if secs < 3600 {
+        format!("{} min ago", secs / 60)
+    } else if secs < 86400 {
+        format!("{} hr ago", secs / 3600)
+    } else {
+        format!("{} days ago", secs / 86400)
+    }
+}
+
 fn show_history(state: &mut TuiState) {
     if state.search_history.is_empty() {
         state.status_message = "No search history".to_string();
@@ -319,7 +335,7 @@ fn show_history(state: &mut TuiState) {
                 .iter()
                 .rev()
                 .enumerate()
-                .map(|(i, query)| format!("  {}: {}", i + 1, query)),
+                .map(|(i, entry)| format!("  {}: {}  ({})", i + 1, entry.query, format_age(entry))),
         )
         .chain(std::iter::once("".to_string()))
         .chain(std::iter::once(
@@ -336,10 +352,19 @@ fn show_history(state: &mut TuiState) {
                     Style::default().fg(COLOR_CYAN).add_modifier(Modifier::BOLD),
                 ))
             } else if line.starts_with("  ") && line.contains(": ") {
-                Line::from(Span::styled(
-                    line.clone(),
-                    Style::default().fg(COLOR_YELLOW),
-                ))
+                // Split query from age: query part in yellow, age in dark gray
+                if let Some(paren_pos) = line.rfind("  (") {
+                    let (query_part, age_part) = line.split_at(paren_pos);
+                    Line::from(vec![
+                        Span::styled(query_part.to_string(), Style::default().fg(COLOR_YELLOW)),
+                        Span::styled(age_part.to_string(), Style::default().fg(COLOR_DARK_GRAY)),
+                    ])
+                } else {
+                    Line::from(Span::styled(
+                        line.clone(),
+                        Style::default().fg(COLOR_YELLOW),
+                    ))
+                }
             } else {
                 Line::from(Span::styled(line.clone(), Style::default().fg(COLOR_WHITE)))
             }
@@ -348,7 +373,7 @@ fn show_history(state: &mut TuiState) {
 
     state.query.clear();
     state.command_mode = false;
-    state.status_message = "Search History".to_string();
+    state.status_message = format!("Search History ({} entries)", state.search_history.len());
 }
 
 fn show_stats(state: &mut TuiState) {
