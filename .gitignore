@@ -35,3 +35,15 @@ docs-site/.vitepress/.temp
 # Claude Code local settings (settings.local.json is user-specific, but hooks/skills are shared)
 .claude/settings.local.json
 docs/tasks
+
+# Ruflo / claude-flow runtime state (ephemeral, not for CI)
+.claude-flow/daemon.pid
+.claude-flow/daemon-state.json
+.claude-flow/metrics/
+.claude-flow/swarm/
+.swarm/memory.db
+.swarm/memory.db-shm
+.swarm/memory.db-wal
+.swarm/state.json
+.claude/memory.db
+ruvector.db
