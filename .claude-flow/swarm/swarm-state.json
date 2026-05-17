@@ -19,6 +19,26 @@
       "updatedAt": "2026-05-17T04:20:22.262Z",
       "pid": 3384,
       "terminationReason": "host process 3384 exited"
+    },
+    "swarm-1778991724501-zg5lfv": {
+      "swarmId": "swarm-1778991724501-zg5lfv",
+      "topology": "hierarchical",
+      "maxAgents": 8,
+      "status": "terminated",
+      "agents": [],
+      "tasks": [],
+      "config": {
+        "topology": "hierarchical",
+        "maxAgents": 8,
+        "strategy": "specialized",
+        "communicationProtocol": "message-bus",
+        "autoScaling": true,
+        "consensusMechanism": "majority"
+      },
+      "createdAt": "2026-05-17T04:22:04.501Z",
+      "updatedAt": "2026-05-17T04:23:04.381Z",
+      "pid": 5021,
+      "terminationReason": "host process 5021 exited"
     }
   },
   "version": "3.0.0"
